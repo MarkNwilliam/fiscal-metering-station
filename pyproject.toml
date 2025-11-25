@@ -1,0 +1,17 @@
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "fiscal-metering-station"
+version = "0.1.0"
+description = "Fiscal / custody-transfer metering toolkit: ISO 5167 orifice flow, Coriolis, API MPMS Ch.4 meter proving, GUM uncertainty and custody tickets"
+readme = "README.md"
+requires-python = ">=3.9"
+license = { text = "MIT" }
+
+[tool.setuptools.packages.find]
+include = ["flowlib*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

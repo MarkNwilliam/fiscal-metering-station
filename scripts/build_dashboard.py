@@ -1,0 +1,360 @@
+#!/usr/bin/env python3
+"""Generate the self-contained interactive fiscal metering dashboard (dashboard.html)."""
+from pathlib import Path
+
+ROOT = Path(__file__).resolve().parents[1]
+
+HTML = r"""<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Fiscal Metering Station - Flow Computation, Proving &amp; Uncertainty</title>
+<style>
+  :root { --navy:#0b3d63; --navy2:#14507f; --ink:#1a1a1a; --line:#dfe6ee; --bg:#f4f6f9; }
+  * { box-sizing:border-box; margin:0; padding:0; }
+  body { font-family:"Helvetica Neue",Helvetica,Arial,sans-serif; background:var(--bg); color:var(--ink); padding:18px; }
+  header { text-align:center; padding:14px; background:var(--navy); color:#fff; border-radius:8px; }
+  header h1 { font-size:20px; letter-spacing:1px; }
+  header p { font-size:12px; opacity:.9; margin-top:4px; }
+  .grid { display:grid; grid-template-columns: 320px 1fr; gap:14px; margin-top:14px; }
+  @media (max-width:860px){ .grid { grid-template-columns:1fr; } }
+  .panel { background:#fff; border:1px solid var(--line); border-radius:8px; padding:14px; }
+  .panel h2 { font-size:13px; color:var(--navy); text-transform:uppercase; letter-spacing:1px; border-bottom:2px solid var(--navy); padding-bottom:4px; margin-top:14px; margin-bottom:8px; }
+  .panel h2:first-child { margin-top:0; }
+  .field { display:flex; justify-content:space-between; align-items:center; gap:8px; margin:7px 0; font-size:12.5px; }
+  .field input[type=number], .field select { width:110px; padding:4px 6px; border:1px solid var(--line); border-radius:4px; font-size:12.5px; }
+  .tabs { display:flex; gap:6px; margin-bottom:12px; }
+  .tabs button { flex:1; padding:7px; border:1px solid var(--navy2); background:#fff; color:var(--navy2); border-radius:6px; cursor:pointer; font-weight:bold; font-size:12px; }
+  .tabs button.active { background:var(--navy2); color:#fff; }
+  .kpi { display:grid; grid-template-columns:repeat(auto-fit,minmax(150px,1fr)); gap:10px; margin-bottom:12px; }
+  .kpi .box { background:var(--bg); border:1px solid var(--line); border-radius:6px; padding:10px; text-align:center; }
+  .kpi .box .val { font-size:19px; font-weight:bold; color:var(--navy); }
+  .kpi .box .lab { font-size:10.5px; color:#555; text-transform:uppercase; letter-spacing:.5px; margin-top:3px; }
+  table { width:100%; border-collapse:collapse; font-size:12px; margin-top:6px; }
+  th,td { border:1px solid var(--line); padding:5px 7px; text-align:left; }
+  th { background:var(--navy); color:#fff; font-size:11px; text-transform:uppercase; }
+  tr:nth-child(even) td { background:#fafbfc; }
+  .badge { display:inline-block; padding:2px 8px; border-radius:10px; font-size:11px; font-weight:bold; }
+  .pass { background:#e3f6e8; color:#1b7a3d; }
+  .fail { background:#fde3e3; color:#b3261e; }
+  pre.ticket { background:#0d1117; color:#c9d1d9; border-radius:6px; padding:12px; font:12px/1.5 "SFMono-Regular",Menlo,monospace; white-space:pre-wrap; margin-top:6px; }
+  .hash { font-size:11px; color:#58a6ff; word-break:break-all; margin-top:6px; }
+  footer { text-align:center; font-size:11px; color:#777; margin-top:16px; }
+  .note { font-size:11px; color:#666; margin-top:8px; }
+</style>
+</head>
+<body>
+<header>
+  <h1>FISCAL METERING STATION</h1>
+  <p>ISO 5167 / AGA-3 orifice &bull; Coriolis &bull; API MPMS Ch.4 proving &bull; GUM uncertainty &bull; custody ticket &mdash; all computed in your browser, no libraries</p>
+</header>
+
+<div class="grid">
+  <div>
+    <div class="panel">
+      <h2>Meter configuration</h2>
+      <div class="tabs">
+        <button id="tabOrifice" class="active">Orifice</button>
+        <button id="tabCoriolis">Coriolis</button>
+      </div>
+
+      <div id="inpOrifice">
+        <div class="field"><span>Pipe ID D (mm)</span><input type="number" id="D" value="100" min="20" max="1000" step="1"></div>
+        <div class="field"><span>Orifice bore d (mm)</span><input type="number" id="d" value="50" min="5" max="750" step="0.1"></div>
+        <div class="field"><span>dP (kPa)</span><input type="number" id="dP" value="50" min="1" max="500" step="1"></div>
+        <div class="field"><span>Tapping</span>
+          <select id="taps">
+            <option value="corner">Corner</option>
+            <option value="flange">Flange</option>
+            <option value="D_D/2">D-D/2</option>
+          </select></div>
+        <div class="field"><span>Fluid</span>
+          <select id="fluidSel">
+            <option value="liquid">Liquid</option>
+            <option value="gas">Natural gas</option>
+          </select></div>
+        <div id="liqFields">
+          <div class="field"><span>Density (kg/m3)</span><input type="number" id="rho" value="850" min="0.1" step="1"></div>
+          <div class="field"><span>Viscosity (cP)</span><input type="number" id="mu" value="5" min="0.001" step="0.1"></div>
+        </div>
+        <div id="gasFields" style="display:none">
+          <div class="field"><span>Pressure P1 (bara)</span><input type="number" id="P1" value="30" step="0.1"></div>
+          <div class="field"><span>Pressure P2 (bara)</span><input type="number" id="P2" value="29.5" step="0.1"></div>
+          <div class="field"><span>Temperature (C)</span><input type="number" id="Tg" value="20" step="1"></div>
+          <div class="field"><span>Isentropic exp. kappa</span><input type="number" id="kappa" value="1.31" step="0.01"></div>
+        </div>
+        <div class="field"><span>Proving runs</span><input type="number" id="runs" value="3" min="2" max="10" step="1"></div>
+        <div class="field"><span>Repeatability limit %</span><input type="number" id="replim" value="0.05" min="0.01" step="0.01"></div>
+      </div>
+
+      <div id="inpCoriolis" style="display:none">
+        <div class="field"><span>Phase shift</span><input type="number" id="phase" value="25" step="0.1"></div>
+        <div class="field"><span>Tube frequency (Hz)</span><input type="number" id="freq" value="40" step="0.1"></div>
+        <div class="field"><span>K factor (kg/s / shift)</span><input type="number" id="K" value="0.02" step="0.001"></div>
+        <div class="field"><span>Density A (kg.Hz2)</span><input type="number" id="A" value="1200000" step="1000"></div>
+        <div class="field"><span>Density B (kg/m3)</span><input type="number" id="B" value="50" step="1"></div>
+        <div class="field"><span>Proving runs</span><input type="number" id="runsC" value="3" min="2" max="10" step="1"></div>
+        <div class="field"><span>Repeatability limit %</span><input type="number" id="replimC" value="0.05" min="0.01" step="0.01"></div>
+      </div>
+    </div>
+  </div>
+
+  <div>
+    <div class="panel">
+      <h2>Live flow computation</h2>
+      <div class="kpi">
+        <div class="box"><div class="val" id="kMass">--</div><div class="lab">Mass flow kg/h</div></div>
+        <div class="box"><div class="val" id="kVol">--</div><div class="lab">Volume flow m3/h</div></div>
+        <div class="box"><div class="val" id="kRho">--</div><div class="lab">Density kg/m3</div></div>
+        <div class="box"><div class="val" id="kRe">--</div><div class="lab">Reynolds</div></div>
+        <div class="box"><div class="val" id="kCd">--</div><div class="lab">Discharge coeff C</div></div>
+        <div class="box"><div class="val" id="kEps">--</div><div class="lab">Expansibility</div></div>
+      </div>
+
+      <h2>Meter proving (API MPMS Ch.4)</h2>
+      <table id="tblProving">
+        <thead><tr><th>Run</th><th>Prover vol (m3)</th><th>Indicated (m3)</th><th>Meter factor</th></tr></thead>
+        <tbody></tbody>
+      </table>
+      <div style="margin-top:8px;font-size:12.5px">
+        Average MF: <b id="avgMF">--</b>
+        &nbsp;&nbsp; Repeatability: <b id="repVal">--</b>
+        &nbsp;&nbsp; <span id="repBadge" class="badge pass">PASS</span>
+      </div>
+
+      <h2>GUM uncertainty budget (k=2)</h2>
+      <table id="tblUnc">
+        <thead><tr><th>Source</th><th>Type</th><th>Std u (%)</th></tr></thead>
+        <tbody></tbody>
+      </table>
+      <div style="margin-top:8px;font-size:12.5px">Expanded uncertainty U = <b id="expU">--</b> % (k=2)</div>
+
+      <h2>Custody transfer ticket</h2>
+      <pre class="ticket" id="ticket">--</pre>
+      <div class="hash" id="hashline">--</div>
+    </div>
+  </div>
+</div>
+<footer>fiscal-metering-station &mdash; Reader-Harris-Gallagher discharge coefficient (ISO 5167), Redlich-Kwong gas compressibility, simplified API 11.1 compensation.</footer>
+
+<script>
+/* ---- compact SHA-256 (public-domain style) ---- */
+var K256=[0x428a2f98,0x71374491,0xb5c0fbcf,0xe9b5dba5,0x3956c25b,0x59f111f1,0x923f82a4,0xab1c5ed5,0xd807aa98,0x12835b01,0x243185be,0x550c7dc3,0x72be5d74,0x80deb1fe,0x9bdc06a7,0xc19bf174,0xe49b69c1,0xefbe4786,0x0fc19dc6,0x240ca1cc,0x2de92c6f,0x4a7484aa,0x5cb0a9dc,0x76f988da,0x983e5152,0xa831c66d,0xb00327c8,0xbf597fc7,0xc6e00bf3,0xd5a79147,0x06ca6351,0x14292967,0x27b70a85,0x2e1b2138,0x4d2c6dfc,0x53380d13,0x650a7354,0x766a0abb,0x81c2c92e,0x92722c85,0xa2bfe8a1,0xa81a664b,0xc24b8b70,0xc76c51a3,0xd192e819,0xd6990624,0xf40e3585,0x106aa070,0x19a4c116,0x1e376c08,0x2748774c,0x34b0bcb5,0x391c0cb3,0x4ed8aa4a,0x5b9cca4f,0x682e6ff3,0x748f82ee,0x78a5636f,0x84c87814,0x8cc70208,0x90befffa,0xa4506ceb,0xbef9a3f7,0xc67178f2];
+function rotr(x,n){return (x>>>n)|(x<<(32-n));}
+function sha256(ascii){
+  var maxWord=Math.pow(2,32),result='',words=[],asciiBitLength=ascii.length*8;
+  var hash=[0x6a09e667,0xbb67ae85,0x3c6ef372,0xa54ff53a,0x510e527f,0x9b05688c,0x1f83d9ab,0x5be0cd19];
+  ascii+='\x80';
+  while(ascii.length%64-56)ascii+='\x00';
+  for(var i=0;i<ascii.length;i++){var j=ascii.charCodeAt(i);if(j>>8)return;words[i>>2]|=j<<((3-i%4)*8);}
+  words[words.length]=((asciiBitLength/maxWord)|0);
+  words[words.length]=(asciiBitLength);
+  for(var j=0;j<words.length;){
+    var w=words.slice(j,j+=16);
+    var oldHash=hash;
+    hash=hash.slice(0,8);
+    for(var i=0;i<64;i++){
+      var w15=w[i-15],w2=w[i-2];
+      var a=hash[0],e=hash[4];
+      var temp1=hash[7]
+        +(rotr(e,6)^rotr(e,11)^rotr(e,25))
+        +((e&hash[5])^((~e)&hash[6]))
+        +K256[i]
+        +(w[i]=(i<16)?w[i]:(
+          w[i-16]+(rotr(w15,7)^rotr(w15,18)^(w15>>>3))+w[i-7]+(rotr(w2,17)^rotr(w2,19)^(w2>>>10))
+        )|0);
+      var temp2=(rotr(a,2)^rotr(a,13)^rotr(a,22))+((a&hash[1])^(a&hash[2])^(hash[1]&hash[2]));
+      hash=[(temp1+temp2)|0,a,hash[1],hash[2],(hash[3]+temp1)|0,e,hash[5],hash[6]];
+    }
+    for(var i=0;i<8;i++){hash[i]=(hash[i]+oldHash[i])|0;}
+  }
+  for(var i=0;i<8;i++){for(var j=3;j+1;j--){var b=(hash[i]>>(j*8))&255;result+=((b<16)?'0':'')+b.toString(16);}}
+  return result;
+}
+
+/* ---- flow computation (mirrors flowlib) ---- */
+var R=8.314462618;
+function tapGeom(D,taps){D=Number(D);if(taps==='flange'){var l=25.4/D;return[l,l];}if(taps==='D_D/2'){return[1,0.5];}return[0,0];}
+function rhgC(beta,Re,D,taps){
+  var g=tapGeom(D,taps),L1=g[0],L2p=g[1];
+  var A=Math.pow(19000*beta/Re,0.8);
+  var M2p=2*L2p/(1-beta);
+  return 0.5961+0.0261*beta*beta-0.216*Math.pow(beta,8)
+    +0.000521*Math.pow(1e6*beta/Re,0.7)
+    +(0.0188+0.0063*A)*Math.pow(beta,3.5)*Math.pow(1e6/Re,0.3)
+    +(0.043+0.080*Math.exp(-10*L1)-0.123*Math.exp(-7*L1))*(1-0.11*A)*Math.pow(beta,4)/(1-Math.pow(beta,4))
+    -0.031*(M2p-0.8*Math.pow(M2p,1.1))*Math.pow(beta,1.3);
+}
+function epsFactor(beta,P1,P2,kappa){var r=P2/P1;if(r>=1)return 1;return 1-(0.351+0.256*Math.pow(beta,4)+0.93*Math.pow(beta,8))*(1-Math.pow(r,1/kappa));}
+function gasZ(T,P){
+  var Tc=190.6,Pc=4.60e6;
+  var a=0.42748*R*R*Math.pow(Tc,2.5)/Pc;
+  var b=0.08664*R*Tc/Pc;
+  var A=a*P/(R*R*Math.pow(T,2.5));
+  var B=b*P/(R*T);
+  var p=A-B-B*B,q=-A*B;
+  var disc=Math.pow(q/2,2)+Math.pow(p/3,3);
+  var roots=[];
+  if(disc>0){var u=Math.cbrt(-q/2+Math.sqrt(disc)),v=Math.cbrt(-q/2-Math.sqrt(disc));roots=[u+v+1/3];}
+  else if(disc===0){var u=Math.cbrt(-q/2);roots=[2*u+1/3,-u+1/3];}
+  else{var phi=Math.acos(-q/2/Math.pow(-disc,0.5));var base=2*Math.sqrt(-disc);
+    roots=[base*Math.cos(phi)+1/3,base*Math.cos(phi+2*Math.PI/3)+1/3,base*Math.cos(phi+4*Math.PI/3)+1/3];}
+  return Math.max.apply(null,roots);
+}
+function orificeFlow(D,d,dP,rho,mu,taps,P1,P2,kappa,isGas){
+  D/=1000;d/=1000;
+  var beta=d/D,eps=1;
+  if(isGas){if(!(P1>0&&P2>0))return null;eps=epsFactor(beta,P1*1e5,P2*1e5,kappa);}
+  var Re=1e5,qm=0,C=0;
+  for(var i=0;i<200;i++){
+    C=rhgC(beta,Re,D*1000,taps);
+    qm=(C/Math.sqrt(1-Math.pow(beta,4)))*eps*(Math.PI/4)*d*d*Math.sqrt(2*dP*1e3*rho);
+    var Re2=4*qm/(Math.PI*D*mu*1e-3);
+    if(Math.abs(Re2-Re)<=1e-9*Math.max(1,Math.abs(Re))){Re=Re2;break;}
+    Re=Re2;
+  }
+  return {qm:C?qm:0,C:C,eps:eps,beta:beta,Re:Re};
+}
+
+var mode='orifice';
+function $(id){return document.getElementById(id);}
+function read(){return {
+  D:+$('D').value,d:+$('d').value,dP:+$('dP').value,taps:$('taps').value,
+  rho:+$('rho').value,mu:+$('mu').value,P1:+$('P1').value,P2:+$('P2').value,
+  T:+$('Tg').value,kappa:+$('kappa').value,runs:+$('runs').value,replim:+$('replim').value,
+  phase:+$('phase').value,freq:+$('freq').value,K:+$('K').value,
+  A:+$('A').value,B:+$('B').value,runsC:+$('runsC').value,replimC:+$('replimC').value,
+  fluid:$('fluidSel').value};}
+
+function compute(){
+  var v=read(),res={};
+  if(mode==='orifice'){
+    var isGas=v.fluid==='gas',rho=v.rho;
+    if(isGas){var Tk=v.T+273.15,z=gasZ(Tk,v.P1*1e5);rho=v.P1*1e5*16.04/(1000*z*R*Tk);}
+    var o=orificeFlow(v.D,v.d,v.dP,rho,v.mu,v.taps,v.P1,v.P2,v.kappa,isGas);
+    if(!o)return;
+    res={qm:o.qm,C:o.C,eps:o.eps,Re:o.Re,rho:rho,beta:o.beta};
+  }else{
+    var qm=v.K*v.phase;
+    var rho=v.A/(v.freq*v.freq)+v.B;
+    res={qm:qm,rho:rho,qv:qm/rho,C:null,eps:1,Re:null,beta:null};
+  }
+  render(res,v);
+}
+
+function render(res,v){
+  var qv=res.qv!==undefined?res.qv:res.qm/res.rho;
+  $('kMass').textContent=(res.qm*3600).toFixed(1);
+  $('kVol').textContent=(qv*3600).toFixed(2);
+  $('kRho').textContent=res.rho.toFixed(1);
+  $('kRe').textContent=res.Re?res.Re.toExponential(1):'n/a';
+  $('kCd').textContent=res.C?res.C.toFixed(5):'n/a (direct mass)';
+  $('kEps').textContent=(res.eps!==null&&res.eps!==undefined)?res.eps.toFixed(4):'1.0000';
+
+  var runs=(mode==='orifice')?v.runs:v.runsC;
+  var replim=(mode==='orifice')?v.replim:v.replimC;
+  var Q=qv*3600,hours=8,Vind=Q*hours,scatter=0.0002;
+  var pv=[],iv=[],mfs=[];
+  for(var i=0;i<runs;i++){
+    var e=(i-(runs-1)/2)*scatter;
+    var ind=Vind*(1+e);
+    pv.push(Vind);iv.push(ind);mfs.push(Vind/ind);
+  }
+  var avg=mfs.reduce(function(a,b){return a+b;},0)/mfs.length;
+  var rep=(Math.max.apply(null,mfs)-Math.min.apply(null,mfs))/avg;
+  var pass=rep<=replim/100;
+  var tb=document.querySelector('#tblProving tbody');tb.innerHTML='';
+  for(var i=0;i<mfs.length;i++){
+    var tr=document.createElement('tr');
+    tr.innerHTML='<td>'+(i+1)+'</td><td>'+pv[i].toFixed(4)+'</td><td>'+iv[i].toFixed(4)+'</td><td>'+mfs[i].toFixed(6)+'</td>';
+    tb.appendChild(tr);
+  }
+  $('avgMF').textContent=avg.toFixed(6);
+  $('repVal').textContent=(rep*100).toFixed(4)+' %';
+  var b=$('repBadge');b.textContent=pass?'PASS':'FAIL';b.className='badge '+(pass?'pass':'fail');
+
+  var src=[['Meter proving repeatability (A)','A',(rep*100)/Math.sqrt(runs)]];
+  if(mode==='orifice'){
+    src.push(['dP transmitter 0.05 % (sens 0.5)','B',0.05/Math.sqrt(3)*0.5]);
+    src.push(['Density 0.1 % (sens 0.5)','B',0.1/Math.sqrt(3)*0.5]);
+    src.push(['Discharge coeff C 0.5 %','B',0.5/2]);
+    src.push(['Bore d 0.05 % (sens 2)','B',0.05/Math.sqrt(3)*2]);
+    src.push(['Flow computer 0.05 %','B',0.05/Math.sqrt(3)]);
+  }else{
+    src.push(['Mass-flow calibration 0.05 %','B',0.05/2]);
+    src.push(['Density (tube freq) 0.1 % (sens 0.5)','B',0.1/Math.sqrt(3)*0.5]);
+    src.push(['Temperature 0.5 C','B',0.05/Math.sqrt(3)]);
+    src.push(['Pressure 0.1 % (sens 0.2)','B',0.1/Math.sqrt(3)*0.2]);
+    src.push(['Flow computer 0.05 %','B',0.05/Math.sqrt(3)]);
+  }
+  var uc=Math.sqrt(src.reduce(function(s,x){return s+x[2]*x[2];},0));
+  var U=2*uc;
+  var ub=document.querySelector('#tblUnc tbody');ub.innerHTML='';
+  for(var i=0;i<src.length;i++){
+    var tr=document.createElement('tr');
+    tr.innerHTML='<td>'+src[i][0]+'</td><td>'+src[i][1]+'</td><td>'+src[i][2].toFixed(4)+'</td>';
+    ub.appendChild(tr);
+  }
+  var tr=document.createElement('tr');
+  tr.innerHTML='<td><b>Combined u_c</b></td><td>C</td><td>'+uc.toFixed(4)+'</td>';
+  ub.appendChild(tr);
+  $('expU').textContent=U.toFixed(4);
+
+  var corrected=Vind*avg,d=res.rho,T=30,P=4,mass=corrected*d;
+  var issued=new Date().toISOString();
+  var payload='B-'+issued.slice(0,10).replace(/-/g,'')+'|FM-01|'+(mode==='orifice'?'orifice run':'crude oil')+'|0|'+Vind.toFixed(4)+'|'+avg.toFixed(9)+'|'+d.toFixed(1)+'|'+T+'|'+P+'|'+U.toFixed(4)+'|2|'+issued+'|fiscal-metering-station:v1';
+  var hash=sha256(payload);
+  $('ticket').textContent=
+'CUSTODY TRANSFER TICKET\n'+
+'Batch ID            : B-'+issued.slice(0,10).replace(/-/g,'')+'\n'+
+'Meter ID            : FM-01\n'+
+'Fluid               : '+(mode==='orifice'?'orifice run':'crude oil')+'\n'+
+'Issued (UTC)        : '+issued+'\n'+
+'-------------------------------------------------------\n'+
+'Start reading (m3)  : 0.0000\n'+
+'End reading (m3)    : '+Vind.toFixed(4)+'\n'+
+'Indicated volume    : '+Vind.toFixed(4)+' m3\n'+
+'Meter factor (MF)   : '+avg.toFixed(6)+'\n'+
+'Corrected volume    : '+corrected.toFixed(4)+' m3\n'+
+'Density (kg/m3)     : '+d.toFixed(1)+'\n'+
+'Corrected mass (kg) : '+mass.toFixed(1)+'\n'+
+'-------------------------------------------------------\n'+
+'Avg temperature (C) : '+T+'.00\n'+
+'Avg pressure (bar)  : '+P+'.000\n'+
+'Expanded uncertainty: '+U.toFixed(4)+' % (k=2)';
+  $('hashline').textContent='Integrity (SHA-256): '+hash+'   -- tamper-evident ticket';
+}
+
+function setMode(m){
+  mode=m;
+  $('tabOrifice').className=m==='orifice'?'active':'';
+  $('tabCoriolis').className=m==='coriolis'?'active':'';
+  $('inpOrifice').style.display=m==='orifice'?'block':'none';
+  $('inpCoriolis').style.display=m==='coriolis'?'block':'none';
+  compute();
+}
+function syncFluid(){
+  var gas=$('fluidSel').value==='gas';
+  $('liqFields').style.display=gas?'none':'block';
+  $('gasFields').style.display=gas?'block':'none';
+  compute();
+}
+$('tabOrifice').onclick=function(){setMode('orifice');};
+$('tabCoriolis').onclick=function(){setMode('coriolis');};
+$('fluidSel').onchange=syncFluid;
+var ids=['D','d','dP','taps','rho','mu','P1','P2','Tg','kappa','runs','replim','phase','freq','K','A','B','runsC','replimC'];
+for(var i=0;i<ids.length;i++){document.getElementById(ids[i]).oninput=compute;}
+compute();
+</script>
+</body>
+</html>
+"""
+
+def main() -> None:
+    out = ROOT / "dashboard.html"
+    out.write_text(HTML, encoding="utf-8")
+    print(f"wrote {out} ({len(HTML)} bytes)")
+
+if __name__ == "__main__":
+    main()
